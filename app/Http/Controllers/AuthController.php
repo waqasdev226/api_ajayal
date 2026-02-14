@@ -158,6 +158,7 @@ class AuthController extends Controller
             'phone' => 'required|string|max:100|unique:users',
             'password' => 'required|string|confirmed|min:5',
             'password_confirmation' => 'required|string|same:password',
+            'currency' => 'nullable|string|in:IQD,USD',
         ]);
 
 
@@ -165,14 +166,18 @@ class AuthController extends Controller
             return response()->json($validator->errors(), 422);
         }
 
-
+        $currency = $request->input('currency', 'IQD');
+        if (!in_array($currency, ['IQD', 'USD'])) {
+            $currency = 'IQD';
+        }
 
         $user = User::create(array_merge(
             $validator->validated(),
             [
                 'enabled'=>1,
                 'reference' => 'AL_'.(string)((User::count() * 5) + 2500),
-                'password' => Hash::make($request->password)
+                'password' => Hash::make($request->password),
+                'currency' => $currency,
             ]
         ));
 
