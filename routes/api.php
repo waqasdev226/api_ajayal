@@ -45,6 +45,8 @@ Route::middleware('jwt.verify')->group( function () {
         Route::get('me', [\App\Http\Controllers\AuthController::class,'me']);
     });
 
+    Route::post('change-password', [\App\Http\Controllers\AuthController::class,'changePassword']);
+
 
 //    Route::post('transfer',             [\App\Http\Controllers\TransactionController::class, 'transfer']);
     Route::post('withdraw',             [\App\Http\Controllers\TransactionController::class, 'withdraw']);
