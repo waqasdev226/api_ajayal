@@ -27,6 +27,7 @@ Route::post('checkOTP/{reference}', [\App\Http\Controllers\AuthController::class
 
 
 
+Route::post('forgot-password', [\App\Http\Controllers\AuthController::class,'forgotPassword'])->name('password.forgot');
 Route::post('resend-otp', [\App\Http\Controllers\AuthController::class,'resendOTP'])->name('otp.resend');
 Route::post('reset-otp', [\App\Http\Controllers\AuthController::class,'resetOTP'])->name('otp.request');
 Route::post('reset-password', [\App\Http\Controllers\AuthController::class,'resetPassword'])->name('password.reset');

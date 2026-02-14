@@ -277,6 +277,47 @@ class AuthController extends Controller
         ]);
     }
 
+    /**
+     * Forgot password: send reset OTP to phone (used by website).
+     */
+    public function forgotPassword(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'phone' => 'required|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['message' => 'Validation failed', 'errors' => $validator->errors()], 422);
+        }
+
+        $user = User::where('phone', $request->input('phone'))->first();
+
+        if (!$user) {
+            return response()->json(['message' => 'No account found for this phone number.'], 404);
+        }
+
+        if ($user->enabled == 0) {
+            return response()->json(['error' => 'Unauthorized', 'message' => 'Account is disabled.'], 401);
+        }
+
+        $otp = UserOTP::create([
+            'user_id'   => $user->id,
+            'otp'       => random_int(1000, 9999),
+            'reference' => self::strUUID(10),
+            'created_at' => Carbon::now(),
+            'finish_at' => Carbon::now()->addMinute(),
+            'type'      => 'reset',
+            'status'    => 0,
+        ]);
+
+        \App\Classes\SMS::sendSMS($user->phone, " رمز إعادة تعيين كلمة المرور " . $otp->otp);
+
+        return response()->json([
+            'message' => 'Reset code sent to your phone.',
+            'otp_ref' => $otp->reference,
+        ], 201);
+    }
+
     protected function resetOTP(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -293,29 +334,34 @@ class AuthController extends Controller
 
         $user = User::where('phone', $phone)->first();
 
-        if ($user->enabled == 0){
+        if (!$user) {
+            return response()->json(['message' => 'No account found for this phone number.', 'error' => 'user_not_found'], 404);
+        }
+
+        if ($user->enabled == 0) {
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
-        if ($type == 'reset'){
-            $otp = UserOTP::create([
-                'user_id'   =>  $user->id,
-                'otp'   =>  random_int(1000, 9999),
-                'reference' =>  self::strUUID(10),
-                'created_at'    =>  Carbon::now(),
-                'finish_at' =>  Carbon::now()->addMinute(),
-                'type'=>'reset',
-                'status'=>0,
-            ]);
+        if ($type != 'reset') {
+            return response()->json(['message' => 'Invalid type.', 'error' => 'invalid_type'], 400);
         }
-        \App\Classes\SMS::sendSMS($user->phone, " رمز تسجيل الدخول ".$otp->otp);
+
+        $otp = UserOTP::create([
+            'user_id'   => $user->id,
+            'otp'       => random_int(1000, 9999),
+            'reference' => self::strUUID(10),
+            'created_at' => Carbon::now(),
+            'finish_at' => Carbon::now()->addMinute(),
+            'type'      => 'reset',
+            'status'    => 0,
+        ]);
+
+        \App\Classes\SMS::sendSMS($user->phone, " رمز تسجيل الدخول " . $otp->otp);
 
         return response()->json([
             'message' => 'User registered successfully',
-            'otp_ref' => $otp->reference
+            'otp_ref' => $otp->reference,
         ], 201);
-
-        return response()->json(['message' => $data], 200);
     }
 
     protected function resendOTP(Request $request)
