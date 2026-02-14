@@ -454,15 +454,11 @@ class AuthController extends Controller
         }
 
         if ($otp->type != 'reset'){
-            return response()->json(['message' => 'error'], 401);
+            return response()->json(['message' => 'Invalid OTP type.'], 401);
         }
 
-        error_log('enter reset pass');
-        error_log($otp->user_id);
-        error_log($request->input('password'));
-        error_log($request->input('password_confirmation'));
         $user = User::find($otp->user_id);
-        $user->password = Hash::make($request->input('password'));
+        $user->password = $request->input('password'); // hashed via User model cast
         $user->save();
 
         $otp->status = 1;
