@@ -103,83 +103,76 @@ class TransactionController extends Controller
         ], 201);
     }
 
+    /** Minimum withdrawal: 150 USD or 150,000 IQD */
+    private const MIN_WITHDRAW_USD = 150;
+    private const MIN_WITHDRAW_IQD = 150_000;
+
     public function withdraw(Request $request): \Illuminate\Http\JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'amount' => 'required|numeric|min:150',
+            'amount' => 'required|numeric|min:0',
             'user_id' => 'required|numeric',
-//            'phone' => 'required|string',
-//            'method' => 'required|string',
-        ],array(
-                'user_id.required' => 'حقل المستخدم مطلوب',
-                'amount.required' => 'حقل المبلغ مطلوب',
-                'amount.numeric' => 'حقل المبلغ يجب أن يكون رقمًا'
-            )
-        );
-
+        ], [
+            'user_id.required' => 'حقل المستخدم مطلوب',
+            'amount.required' => 'حقل المبلغ مطلوب',
+            'amount.numeric' => 'حقل المبلغ يجب أن يكون رقمًا',
+        ]);
 
         if ($validator->fails()) {
-            return response()->json($validator->errors(), 422);
+            return response()->json(['message' => 'يرجى التحقق من البيانات المدخلة', 'errors' => $validator->errors()], 422);
         }
-
-        if (!User::where('id', $request->input('user_id'))->exists()) {
-            return response()->json('المستخدم غير موجود', 422);
-        }
-
-        if (User::where('id', $request->input('user_id'))->first()->profit < $request->input('amount')) {
-            return response()->json('الرصيد غير كافي', 422);
-        }
-
-        if ((int)$request->input('amount') < 150) {
-            $curr = User::where('id', $request->input('user_id'))->first()->currency;
-            if ($curr == 'IQD') {
-                return response()->json(' لا يمكن سحب اقل من ١٥٠ الف دينار', 422);
-            } else {
-                return response()->json(' لا يمكن سحب اقل من ١٥٠ دولار', 422);
-            }
-        }
-
-        error_log('------- 1');
 
         $from = User::where('id', $request->input('user_id'))->first();
-        error_log('------- 2');
-
-        if (is_null($from->profit)){
-            return response()->json('لايوجد ارباح', 422);
+        if (!$from) {
+            return response()->json(['message' => 'المستخدم غير موجود'], 422);
         }
 
-        $last_withdraw = Withdraw::where('user_id', $from->id)->orderBy('id', 'desc')->first();
+        $amount = (float) $request->input('amount');
+        $currency = strtoupper((string) ($from->currency ?? 'IQD'));
 
-
-        if (isset($last_withdraw)){
-//            $last = Carbon::createFromFormat('Y-m', $last_withdraw->created_at);
-            $last = Carbon::parse($last_withdraw->created_at)->format('Y-m');
-            $now = Carbon::parse(Carbon::now())->format('Y-m');
-            if ($last == $now) {
-                return response()->json('لايمكن السحب اكثر من مرة في الشهر', 422);
-
+        // Minimum: 150 USD or 150,000 IQD
+        if ($currency === 'USD') {
+            if ($amount < self::MIN_WITHDRAW_USD) {
+                return response()->json(['message' => 'الحد الأدنى للسحب للحسابات بالدولار هو ' . self::MIN_WITHDRAW_USD . ' USD'], 422);
+            }
+        } else {
+            if ($amount < self::MIN_WITHDRAW_IQD) {
+                return response()->json(['message' => 'الحد الأدنى للسحب للحسابات بالدينار هو ' . number_format(self::MIN_WITHDRAW_IQD) . ' د.ع'], 422);
             }
         }
 
-//        $transaction_x = new Transactions();
-//        $transaction_x->from = $from->id;
-//        $transaction_x->to = 0;
-//        $transaction_x->amount = 0;
-//        $transaction_x->current_profit = $from->profit;
-//        $transaction_x->type = 'withdraw';
-//        $transaction_x->status = 0;
-//        $transaction_x->save();
-//        LogController::AuditLogUsers('store', 'Transactions', $transaction_x->id, null, $transaction_x, 'withdraw profit from user: ' . $request->input('from'), $request, $from);
-        if (is_null($request->input('phone'))){
-            return response()->json('لايوجد رقم هاتف للسحب من خلاله', 422);
+        if (is_null($from->profit) || (float) $from->profit < $amount) {
+            return response()->json(['message' => 'الرصيد غير كافي. رصيدك الحالي: ' . number_format((float) $from->profit, 2)], 422);
         }
 
+        // Only last 5 days of the month
+        $today = Carbon::now();
+        $lastDay = $today->daysInMonth;
+        $allowedFrom = $lastDay - 4;
+        if ($today->day < $allowedFrom) {
+            return response()->json([
+                'message' => 'يُسمح بطلب السحب فقط خلال آخر 5 أيام من الشهر (من يوم ' . $allowedFrom . ' إلى ' . $lastDay . ')',
+            ], 422);
+        }
 
+        // One withdrawal per user per month (pending or approved)
+        $hasThisMonth = Withdraw::where('user_id', $from->id)
+            ->whereMonth('created_at', $today->month)
+            ->whereYear('created_at', $today->year)
+            ->whereIn('status', ['0', 0, '1', 1])
+            ->exists();
+        if ($hasThisMonth) {
+            return response()->json(['message' => 'تم تقديم طلب سحب لهذا الشهر مسبقاً. يُسمح بطلب واحد فقط شهرياً.'], 422);
+        }
+
+        if (is_null($request->input('phone'))) {
+            return response()->json(['message' => 'لايوجد رقم هاتف للسحب من خلاله'], 422);
+        }
 
         $with_d = new Withdraw();
         $with_d->user_id = $request->input('user_id');
-        $with_d->amount = $request->input('amount');
-        $with_d->status = 1;
+        $with_d->amount = $amount;
+        $with_d->status = 0; // Pending – admin approves later
         $with_d->note = $request->input('note');
 //        $with_d->method = $from->wdr_method;
 //        $with_d->phone = $from->wdr_phone;
@@ -187,17 +180,17 @@ class TransactionController extends Controller
         $with_d->method = $request->input('method');
         $with_d->phone = $request->input('phone');
         $with_d->name = $request->input('name');
-        if ($request->input('method') == 'western_union'){
-            if (is_null($request->input('passport'))){
-                return response()->json('لايوجد جواز سفر للسحب من خلاله', 422);
+        if ($request->input('method') == 'western_union') {
+            if (is_null($request->input('passport'))) {
+                return response()->json(['message' => 'لايوجد جواز سفر للسحب من خلاله'], 422);
             } else {
                 $with_d->passport = $request->input('passport');
 //                $with_d->passport = $from->wdr_passport;
             }
         }
-        if ($request->input('method') == 'bank_account'){
-            if (is_null($request->input('bank_account'))){
-                return response()->json('لايوجد حساب مصرفي للسحب من خلاله', 422);
+        if ($request->input('method') == 'bank_account') {
+            if (is_null($request->input('bank_account'))) {
+                return response()->json(['message' => 'لايوجد حساب مصرفي للسحب من خلاله'], 422);
             } else {
                 $with_d->bank_account = $request->input('bank_account');
                 $with_d->swift = $request->input('swift');
@@ -206,9 +199,9 @@ class TransactionController extends Controller
             }
 
         }
-        if ($request->input('method') == 'credit'){
-            if (is_null($request->input('card_no'))){
-                return response()->json('لايوجد بطاقه للسحب من خلاله', 422);
+        if ($request->input('method') == 'credit') {
+            if (is_null($request->input('card_no'))) {
+                return response()->json(['message' => 'لايوجد بطاقه للسحب من خلاله'], 422);
             } else {
                 $with_d->card_no = $request->input('card_no');
 //                $with_d->card_no = $from->wdr_card_no;
@@ -220,7 +213,7 @@ class TransactionController extends Controller
 
 
         return response()->json([
-            'message' => 'تم السحب بنجاح',
+            'message' => 'تم تقديم طلب السحب بنجاح. في انتظار الموافقة.',
         ], 201);
     }
 }
