@@ -36,6 +36,10 @@ Route::post('reset-password', [\App\Http\Controllers\AuthController::class,'rese
 
 Route::post('refreshOTP/{reference}', [\App\Http\Controllers\AuthController::class,'refreshOTP']);
 
+// Manual profit credit (admin only: send X-Admin-Key header or Bearer token = ADMIN_API_KEY)
+Route::post('manual-profit', [\App\Http\Controllers\ManualProfitController::class, 'store'])
+    ->middleware('admin.key');
+
 Route::middleware('jwt.verify')->group( function () {
 
     Route::prefix('auth')->group(function () {

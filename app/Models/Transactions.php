@@ -17,7 +17,10 @@ class Transactions extends Model
         'type',
         'status',
         'note',
-        'method'
+        'method',
+        'currency',
+        'created_by_guard',
+        'created_by_id',
     ];
 
     public function fromUser(): \Illuminate\Database\Eloquent\Relations\HasOne
